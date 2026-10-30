@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+coverage
+playwright-report
+test-results
+package-lock.json
+next-env.d.ts
+
+# Preserve product requirements and project instructions
+AGENTS.md
+PRODUCT.md
+
+src/generated/
+prisma/migrations/
+
+.next-e2e/

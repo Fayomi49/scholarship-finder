@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SEEKER
+  ADMIN
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IGNORED
+}
+
+enum RecordStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model User {
+  id            String                @id @default(cuid())
+  name          String?
+  email         String?               @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role                  @default(SEEKER)
+  createdAt     DateTime              @default(now())
+  accounts      Account[]
+  sessions      Session[]
+  profile       UserProfile?
+  scholarships  Scholarship[]
+  runs          DiscoveryRun[]
+  candidates    DiscoveredCandidate[]
+  reviews       ReviewEvent[]
+  saved         SavedScholarship[]
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+model UserProfile {
+  userId             String   @id
+  nationality        String?
+  residenceCountry   String?
+  preferredDegree    String?
+  preferredFields    String[] @default([])
+  preferredCountries String[] @default([])
+  fundingPreference  String   @default("unknown")
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Scholarship {
+  id              String                @id @default(cuid())
+  title           String
+  provider        String
+  country         String?
+  region          String                @default("unknown")
+  deliveryMode    String                @default("unknown")
+  opportunityType String
+  fields          String[]
+  degreeLevels    String[]
+  fundingType     String                @default("unknown")
+  deadlineAt      DateTime?             @db.Timestamptz(3)
+  sourceUrl       String
+  applicationUrl  String?
+  verifiedAt      DateTime?             @db.Timestamptz(3)
+  identityKey     String                @unique
+  intakeKey       String                @default("unspecified-intake")
+  canonicalUrl    String
+  data            Json
+  status          RecordStatus          @default(DRAFT)
+  createdById     String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  createdBy       User                  @relation(fields: [createdById], references: [id])
+  candidates      DiscoveredCandidate[]
+  saved           SavedScholarship[]
+
+  @@unique([canonicalUrl, intakeKey])
+  @@index([status, country, deadlineAt])
+  @@index([fields], type: Gin)
+}
+
+model SavedScholarship {
+  userId        String
+  scholarshipId String
+  status        String      @default("interested")
+  notes         String?
+  appliedAt     DateTime?   @db.Timestamptz(3)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scholarship   Scholarship @relation(fields: [scholarshipId], references: [id])
+
+  @@id([userId, scholarshipId])
+}
+
+model DiscoveryRun {
+  id              String                 @id @default(cuid())
+  ownerId         String
+  owner           User                   @relation(fields: [ownerId], references: [id])
+  provider        String
+  retryAfter      DateTime?              @db.Timestamptz(3)
+  status          RunStatus              @default(QUEUED)
+  stage           String                 @default("queued")
+  filters         Json
+  queries         String[]               @default([])
+  nextQuery       Int                    @default(0)
+  searchCalls     Int                    @default(0)
+  pagesFetched    Int                    @default(0)
+  resultsCount    Int                    @default(0)
+  duplicatesCount Int                    @default(0)
+  reviewedCount   Int                    @default(0)
+  errors          Json                   @default("[]")
+  startedAt       DateTime?              @db.Timestamptz(3)
+  finishedAt      DateTime?              @db.Timestamptz(3)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  observations    DiscoveryObservation[]
+
+  @@index([ownerId, createdAt])
+  @@index([status])
+}
+
+model DiscoveredCandidate {
+  id                    String                 @id @default(cuid())
+  ownerId               String
+  owner                 User                   @relation(fields: [ownerId], references: [id])
+  intakeKey             String                 @default("unspecified-intake")
+  canonicalUrl          String
+  identityKey           String
+  data                  Json
+  status                ReviewStatus           @default(PENDING)
+  isMock                Boolean                @default(false)
+  possibleDuplicateId   String?
+  approvedScholarshipId String?
+  approvedScholarship   Scholarship?           @relation(fields: [approvedScholarshipId], references: [id])
+  reviewedAt            DateTime?              @db.Timestamptz(3)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  sources               CandidateSource[]
+  observations          DiscoveryObservation[]
+  reviews               ReviewEvent[]
+
+  @@unique([ownerId, canonicalUrl, intakeKey, isMock])
+  @@unique([ownerId, identityKey, isMock])
+  @@index([ownerId, status, createdAt])
+}
+
+model DiscoveryObservation {
+  id          String               @id @default(cuid())
+  runId       String
+  run         DiscoveryRun         @relation(fields: [runId], references: [id])
+  url         String
+  candidateId String?
+  candidate   DiscoveredCandidate? @relation(fields: [candidateId], references: [id])
+  outcome     String
+  searchData  Json                 @default("{}")
+  errorCode   String?
+  createdAt   DateTime             @default(now())
+
+  @@unique([runId, url])
+}
+
+model CandidateSource {
+  id          String              @id @default(cuid())
+  candidateId String
+  candidate   DiscoveredCandidate @relation(fields: [candidateId], references: [id])
+  url         String
+  isOfficial  Boolean             @default(false)
+  status      String              @default("unverified")
+  evidence    Json
+  fetchedAt   DateTime?           @db.Timestamptz(3)
+  checkedAt   DateTime            @default(now())
+
+  @@index([candidateId])
+}
+
+model ReviewEvent {
+  id          String              @id @default(cuid())
+  candidateId String
+  candidate   DiscoveredCandidate @relation(fields: [candidateId], references: [id])
+  reviewerId  String
+  reviewer    User                @relation(fields: [reviewerId], references: [id])
+  action      String
+  snapshot    Json
+  createdAt   DateTime            @default(now())
+
+  @@index([candidateId, createdAt])
+}
+
+model SourcePolicy {
+  nextFetchAt DateTime? @db.Timestamptz(3)
+  hostname    String    @id
+  allowed     Boolean   @default(false)
+  official    Boolean   @default(false)
+  termsUrl    String
+  notes       String
+  checkedAt   DateTime  @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt
+}
